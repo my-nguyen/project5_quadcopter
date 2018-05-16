@@ -1,62 +1,10 @@
 import numpy as np
 from task import Task
 
-class Agent():
-    def __init__(self, task):
-        # Task (environment) information
-        self.task = task
-        self.state_size = task.state_size
-        self.action_size = task.action_size
-        self.action_low = task.action_low
-        self.action_high = task.action_high
-        self.action_range = self.action_high - self.action_low
+from keras import layers, models, optimizers
+from keras import backend as K
+from keras.layers.advanced_activations import LeakyReLU
 
-        self.w = np.random.normal(
-            size=(self.state_size, self.action_size),  # weights for simple linear policy: state_space x action_space
-            scale=(self.action_range / (2 * self.state_size))) # start producing actions in a decent range
-
-        # Score tracker and learning parameters
-        self.best_w = None
-        self.best_score = -np.inf
-        self.noise_scale = 0.1
-
-        # Episode variables
-        self.reset_episode()
-
-    def reset_episode(self):
-        self.total_reward = 0.0
-        self.count = 0
-        state = self.task.reset()
-        return state
-
-    def step(self, reward, done):
-        # Save experience / reward
-        self.total_reward += reward
-        self.count += 1
-
-        # Learn, if at end of episode
-        if done:
-            self.learn()
-###########################################################################################################
-###########################################################################################################
-#Actor Critic method
-    def act(self, state):
-        # Choose action based on given state and policy
-        action = np.dot(state, self.w)  # simple linear policy
-        return action
-
-    def learn(self):
-        # Learn by random policy search, using a reward-based score
-        self.score = self.total_reward / float(self.count) if self.count else 0.0
-        if self.score > self.best_score:
-            self.best_score = self.score
-            self.best_w = self.w
-            self.noise_scale = max(0.5 * self.noise_scale, 0.01)
-        else:
-            self.w = self.best_w
-            self.noise_scale = min(2.0 * self.noise_scale, 3.2)
-        self.w = self.w + self.noise_scale * np.random.normal(size=self.w.shape)  # equal noise in all directions
-        
 ##############################################################################################################################
 import random
 from collections import namedtuple, deque
@@ -64,15 +12,15 @@ from collections import namedtuple, deque
 class ReplayBuffer:
     """Fixed-size buffer to store experience tuples."""
 
-    def __init__(self, buffer_size, batch_size):
+    def __init__(self, buffer_size, batch_size): #100000, 64
         """Initialize a ReplayBuffer object.
         Params
         ======
             buffer_size: maximum size of buffer
             batch_size: size of each training batch
         """
-        self.memory = deque(maxlen=buffer_size)  # internal memory (deque)
-        self.batch_size = batch_size
+        self.memory = deque(maxlen=buffer_size)  # internal memory (deque) 100000
+        self.batch_size = batch_size #64
         self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done"])
 
     def add(self, state, action, reward, next_state, done):
@@ -92,8 +40,7 @@ class ReplayBuffer:
 
 #improves policy
 
-from keras import layers, models, optimizers
-from keras import backend as K
+
 
 class Actor:
     """Actor (Policy) Model."""
@@ -120,13 +67,14 @@ class Actor:
 
     def build_model(self):
         """Build an actor (policy) network that maps states -> actions."""
+        lrelu = LeakyReLU(alpha=0.1)
         # Define input layer (states)
         states = layers.Input(shape=(self.state_size,), name='states')
 
         # Add hidden layers
-        net = layers.Dense(units=32, activation='relu')(states)
-        net = layers.Dense(units=64, activation='relu')(net)
-        net = layers.Dense(units=32, activation='relu')(net)
+        net = layers.Dense(units=500, activation=lrelu)(states)
+        net = layers.Dense(units=400, activation=lrelu)(net)
+        #net = layers.Dense(units=32, activation='relu')(net)
 
         # Try different layer sizes, activations, add batch normalization, regularizers, etc.
 
@@ -142,7 +90,7 @@ class Actor:
         self.model = models.Model(inputs=states, outputs=actions)
 
         # Define loss function using action value (Q value) gradients
-        action_gradients = layers.Input(shape=(self.action_size,))
+        action_gradients = layers.Input(shape=(self.action_size,))#returns tensor
         loss = K.mean(-action_gradients * actions)
 
         # Incorporate any additional losses here (e.g. from regularizers)
@@ -179,23 +127,24 @@ class Critic:
 
     def build_model(self):
         """Build a critic (value) network that maps (state, action) pairs -> Q-values."""
+        lrelu = LeakyReLU(alpha=0.1)
         # Define input layers
         states = layers.Input(shape=(self.state_size,), name='states')
         actions = layers.Input(shape=(self.action_size,), name='actions')
 
         # Add hidden layer(s) for state pathway
-        net_states = layers.Dense(units=32, activation='relu')(states)
-        net_states = layers.Dense(units=64, activation='relu')(net_states)
+        net_states = layers.Dense(units=300, activation= lrelu)(states)
+        net_states = layers.Dense(units=250, activation= lrelu)(net_states)
 
         # Add hidden layer(s) for action pathway
-        net_actions = layers.Dense(units=32, activation='relu')(actions)
-        net_actions = layers.Dense(units=64, activation='relu')(net_actions)
+        net_actions = layers.Dense(units=300, activation= lrelu)(actions)
+        net_actions = layers.Dense(units=250, activation= lrelu)(net_actions)
 
         # Try different layer sizes, activations, add batch normalization, regularizers, etc.
 
         # Combine state and action pathways
         net = layers.Add()([net_states, net_actions])
-        net = layers.Activation('relu')(net)
+        net = layers.Activation(lrelu)(net)
 
         # Add more layers to the combined network if needed
 
@@ -255,9 +204,9 @@ class DDPG(): #might not need BaseAgent
     def __init__(self, task):
         self.task = task
         self.state_size = task.state_size
-        self.action_size = task.action_size
-        self.action_low = task.action_low
-        self.action_high = task.action_high
+        self.action_size = task.action_size #4
+        self.action_low = task.action_low #0
+        self.action_high = task.action_high #900
 
         # Actor (Policy) Model
         self.actor_local = Actor(self.state_size, self.action_size, self.action_low, self.action_high)
@@ -273,10 +222,10 @@ class DDPG(): #might not need BaseAgent
 
         # Noise process
         self.exploration_mu = 0
-        self.exploration_theta = 0.15
+        self.exploration_theta = 0.5 #0.15
         self.exploration_sigma = 0.2
         self.noise = OUNoise(self.action_size, self.exploration_mu, self.exploration_theta, self.exploration_sigma)
-
+#########################################################################################################################
         # Replay memory
         self.buffer_size = 100000
         self.batch_size = 64
@@ -287,14 +236,15 @@ class DDPG(): #might not need BaseAgent
         self.tau = 0.01  # for soft update of target parameters
         
         #Score##################################################################################################
-        self.score = 0
+        self.total_reward=0.0
+        self.score = 0.0
         self.best_score = -np.inf
-        self.count = 0
+        #self.count = 0
         #######################################################################################################
         
     def reset_episode(self):
         self.total_reward = 0.0
-        self.count = 0
+        #self.count = 0
         self.noise.reset()
         state = self.task.reset()
         self.last_state = state
@@ -302,12 +252,15 @@ class DDPG(): #might not need BaseAgent
 
     def step(self, action, reward, next_state, done):
         ########################################################update score
-        self.total_reward += reward
-        self.count += 1
+        #self.count += 1
         ####################################################################
          # Save experience / reward
         self.memory.add(self.last_state, action, reward, next_state, done)
-
+        self.total_reward += reward
+        if done: #end of episode?
+            self.score = self.total_reward
+            self.best_score=self.score if self.score > self.best_score else self.best_score
+#######################################################################
         # Learn, if enough samples are available in memory
         if len(self.memory) > self.batch_size:
             experiences = self.memory.sample()
@@ -327,6 +280,7 @@ class DDPG(): #might not need BaseAgent
         # Convert experience tuples to separate arrays for each element (states, actions, rewards, etc.)
         states = np.vstack([e.state for e in experiences if e is not None])
         actions = np.array([e.action for e in experiences if e is not None]).astype(np.float32).reshape(-1, self.action_size)
+        #print(actions)
         rewards = np.array([e.reward for e in experiences if e is not None]).astype(np.float32).reshape(-1, 1)
         dones = np.array([e.done for e in experiences if e is not None]).astype(np.uint8).reshape(-1, 1)
         next_states = np.vstack([e.next_state for e in experiences if e is not None])
@@ -348,13 +302,7 @@ class DDPG(): #might not need BaseAgent
         self.soft_update(self.critic_local.model, self.critic_target.model)
         self.soft_update(self.actor_local.model, self.actor_target.model)   
         
-        #################################Score
-        self.score = self.total_reward / float(self.count) if self.count else 0.0
-        print(self.score)
-        if self.score > self.best_score:
-            self.best_score = self.score
-            
-       #########################how to update score?????
+       
         
 
     def soft_update(self, local_model, target_model):
